@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>cleanhome-service-service</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../shared/CleanHome.ServiceDefaults/CleanHome.ServiceDefaults.csproj" />
+
+  </ItemGroup>
+</Project>

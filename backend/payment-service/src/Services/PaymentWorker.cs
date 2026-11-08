@@ -1,0 +1,5 @@
+using CleanHome.Payment.Api.Interfaces;
+namespace CleanHome.Payment.Api.Services;
+public sealed class PaymentWorker(IServiceScopeFactory scopes,ILogger<PaymentWorker> logger):BackgroundService{
+ protected override async Task ExecuteAsync(CancellationToken ct){var nextQuery=DateTime.UtcNow.AddMinutes(2);while(!ct.IsCancellationRequested){try{using var scope=scopes.CreateScope();var repo=scope.ServiceProvider.GetRequiredService<IPaymentRepository>();var service=scope.ServiceProvider.GetRequiredService<PaymentService>();foreach(var id in await repo.Due(ct)){try{await service.Sync(id,ct);}catch(Exception)when(!ct.IsCancellationRequested){logger.LogWarning("Thanh toán chưa đồng bộ; sẽ thử lại.");}}if(DateTime.UtcNow>=nextQuery){nextQuery=DateTime.UtcNow.AddMinutes(2);foreach(var reference in await repo.PendingAttempts(ct)){try{await service.Reconcile(reference,ct);}catch(Exception)when(!ct.IsCancellationRequested){logger.LogWarning("VNPay chưa đối soát được; giữ trạng thái chờ xác minh.");}}}}catch(OperationCanceledException)when(ct.IsCancellationRequested){break;}catch(Exception){logger.LogWarning("Payment worker chưa sẵn sàng.");}await Task.Delay(3000,ct);}}
+}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../payment-service/src/CleanHome.Payment.Api.csproj" />
+    <ProjectReference Include="../../order-service/src/CleanHome.Order.Api.csproj" />
+    <ProjectReference Include="../../shared/CleanHome.ServiceDefaults/CleanHome.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../auth-service/src/CleanHome.Auth.Api.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../user-service/src/CleanHome.User.Api.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../api-gateway/src/CleanHome.Gateway.Api.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,21 @@
+"use client"
+import {useEffect,useRef,useState} from 'react'
+import {apiRequest,ApiError} from '@/lib/api-client'
+import type {Role} from '@/lib/types'
+import {Panel,Btn,money} from '../../common'
+type Status={bookingId:number;code:string;amount:number;method:'VNPAY'|'CASH';status:string;orderStatus:string;collectorEmployeeId:number|null;paidAt:string|null;collectedAt:string|null;canCollect:boolean;canConfirm:boolean;canPay:boolean}
+const labels:Record<string,string>={UNPAID:'Chưa thanh toán',PENDING:'Đang chờ thanh toán/xác minh',FAILED:'Thanh toán chưa thành công',PAID:'Đã thanh toán',CASH_AWAITING_CONFIRMATION:'Đã báo thu tiền, chờ khách xác nhận',DISPUTED:'Có tranh chấp, chờ quản trị viên đối soát',REFUND_PENDING:'Chờ đối soát hoàn tiền',REFUNDED:'Đã xác nhận hoàn tiền'}
+export function OrderPayment({bookingId,role}:{bookingId:number;role:Role}){
+ const [state,setState]=useState<Status|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[tick,setTick]=useState(0),[legacy,setLegacy]=useState(false)
+ const lock=useRef(false),checkoutKey=useRef(crypto.randomUUID())
+ useEffect(()=>{const abort=new AbortController();async function load(){try{const value=await apiRequest<Status>(`payments/orders/${bookingId}/status`,{signal:abort.signal});if(!abort.signal.aborted){setState(value);setError('');setLegacy(false)}}catch(e){if(abort.signal.aborted)return;if(e instanceof ApiError&&e.status===404)setLegacy(true);else setError(e instanceof Error?e.message:'Chưa tải được thanh toán.')}}void load();const timer=setInterval(()=>void load(),4000);return()=>{abort.abort();clearInterval(timer)}},[bookingId,tick])
+ async function action(kind:'pay'|'collect'|'paid'|'disputed'){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{if(kind==='pay'){
+  const checkout=()=>apiRequest<{paymentUrl:string;expiresAt:string}>(`payments/vnpay/retry`,{method:'POST',body:JSON.stringify({orderId:bookingId,idempotencyKey:checkoutKey.current})});
+  let result=await checkout();
+  if(new Date(result.expiresAt).getTime()<=Date.now()+30000){checkoutKey.current=crypto.randomUUID();result=await checkout()}
+  if(!Number.isFinite(new Date(result.expiresAt).getTime())||new Date(result.expiresAt).getTime()<=Date.now())throw new Error('Liên kết thanh toán đã hết hạn. Hãy thử lại để lấy giao dịch mới.');
+  const url=new URL(result.paymentUrl);if(url.protocol!=='https:'||url.hostname!=='sandbox.vnpayment.vn')throw new Error('URL thanh toán không hợp lệ.');window.location.assign(result.paymentUrl)
+ }else{await apiRequest(kind==='collect'?'payments/cash/confirm-collection':'payments/cash/customer-confirm',{method:'POST',body:JSON.stringify({orderId:bookingId,paid:kind==='paid'})});setTick(v=>v+1)}}catch(e){setError(e instanceof Error?e.message:'Chưa thực hiện được.')}finally{lock.current=false;setBusy(false)}}
+ if(legacy)return null
+ return <Panel title="Thanh toán">{error&&<p role="alert" className="my-3 text-red-700">{error}</p>}{!state?<p>Đang tải trạng thái thanh toán…</p>:<div className="space-y-3"><p>{state.method==='VNPAY'?'VNPay Sandbox':'Tiền mặt sau khi hoàn thành'} · <strong>{money(state.amount)}</strong></p><p role="status">{labels[state.status]||state.status}</p>{state.method==='VNPAY'&&state.status==='PAID'&&<p>Đơn đã thanh toán trực tuyến, không thu thêm tiền mặt.</p>}{state.method==='CASH'&&state.collectorEmployeeId&&<p>Nhân viên được chỉ định thu tiền: #{state.collectorEmployeeId}</p>}{state.canPay&&<Btn disabled={busy} onClick={()=>void action('pay')}>{busy?'Đang chuyển…':'Thanh toán qua VNPay'}</Btn>}{state.canCollect&&<Btn disabled={busy} onClick={()=>void action('collect')}>Xác nhận đã thu đủ {money(state.amount)}</Btn>}{state.canConfirm&&<div><p className="mb-3">Nhân viên đã xác nhận thu tiền. Vui lòng xác nhận bạn đã thanh toán.</p><div className="flex flex-wrap gap-3"><Btn disabled={busy} onClick={()=>void action('paid')}>Tôi đã thanh toán</Btn><Btn secondary disabled={busy} onClick={()=>void action('disputed')}>Tôi chưa thanh toán</Btn></div></div>}{role==='customer'&&state.status==='PENDING'&&<p>Kết quả sẽ cập nhật sau khi backend xác minh với VNPay. Đóng trình duyệt không đồng nghĩa thanh toán thất bại.</p>}</div>}</Panel>
+}

@@ -1,0 +1,67 @@
+// Local browser QA: reads sample data, adjusts a draft pin, denies GPS permission.
+// Does not create bookings, enable staff readiness, or save simulated coordinates.
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+async function main(){
+ const accounts=JSON.parse(fs.readFileSync(path.join(__dirname,'../../backend/.local/demo-accounts.json'),'utf8'))
+ const tokens=[];const targets=await(await fetch('http://127.0.0.1:9227/json')).json()
+ const socket=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject})
+ let sequence=0;const pending=new Map()
+ socket.onmessage=event=>{const data=JSON.parse(event.data);if(data.id){const task=pending.get(data.id);if(task){pending.delete(data.id);data.error?task.reject(Error(data.error.message)):task.resolve(data.result)}}}
+ const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}))})
+ const evaluate=async expression=>{const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw Error('Browser evaluation failed');return result.result.value}
+ async function until(expression){for(let i=0;i<90;i++){if(await evaluate(expression))return;await delay(500)}throw Error('Browser condition timed out')}
+ async function session(role,port,route){const a=accounts.find(a=>a.Role===role);const r=await fetch('http://localhost:4000/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:a.Email,password:a.Password})});assert.equal(r.status,200);const token=(await r.json()).accessToken;tokens.push(token);await call('Page.navigate',{url:`http://localhost:${port}/dang-nhap`});await until('document.readyState==="complete"');await evaluate(`sessionStorage.setItem('cleanhome-api-session',${JSON.stringify(token)})`);await call('Page.navigate',{url:`http://localhost:${port}${route}`});return token}
+ try{
+  await session('customer',3001,'/dat-dich-vu')
+  await until(`!!document.querySelector('#thong-tin-nha-o .leaflet-container')&&!!document.querySelector('.leaflet-marker-icon')`)
+  assert.equal(await evaluate(`document.querySelector('button[type=submit]').disabled`),true)
+  assert.equal(await evaluate(`document.querySelector('#thong-tin-nha-o input[type=checkbox]').checked`),false)
+  const before=await evaluate(`document.querySelector('input[aria-label="Vĩ độ điểm vệ sinh"]').value`)
+  const point=await evaluate(`(()=>{const r=document.querySelector('.leaflet-container').getBoundingClientRect();document.querySelector('.leaflet-container').scrollIntoView({block:'center'});return true})()`)
+  const box=await evaluate(`(()=>{const r=document.querySelector('.leaflet-container').getBoundingClientRect();return {x:r.x+r.width/2+70,y:r.y+r.height/2+35}})()`)
+  await call('Input.dispatchMouseEvent',{type:'mousePressed',x:box.x,y:box.y,button:'left',clickCount:1});await call('Input.dispatchMouseEvent',{type:'mouseReleased',x:box.x,y:box.y,button:'left',clickCount:1});await delay(200)
+  const selected=await evaluate(`document.querySelector('input[aria-label="Vĩ độ điểm vệ sinh"]').value`);assert.notEqual(selected,before)
+  await evaluate(`document.querySelector('#thong-tin-nha-o input[type=checkbox]').click()`);assert.equal(await evaluate(`document.querySelector('button[type=submit]').disabled`),false)
+  assert.equal(await evaluate(`document.querySelectorAll('input[name=paymentMethod]').length`),2)
+  await evaluate(`document.querySelector('input[name=paymentMethod][value=VNPAY]').click()`);assert.ok(await evaluate(`document.querySelector('button[type=submit]').textContent.includes('VNPay')`))
+  await evaluate(`document.querySelector('input[name=paymentMethod][value=CASH]').click()`)
+  await call('Browser.setPermission',{permission:{name:'geolocation'},setting:'denied',origin:'http://localhost:3001'})
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Sử dụng vị trí hiện tại')).click()`)
+  await until(`document.body.innerText.includes('Không lấy được vị trí')`)
+  assert.equal(await evaluate(`document.querySelector('input[aria-label="Vĩ độ điểm vệ sinh"]').value`),selected)
+  console.log('PASS: customer Leaflet map/marker, manual pin selection, explicit confirmation and GPS denial preserving the selected destination.')
+  await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'))
+  const staffToken=await session('staff',3002,'/cong-viec')
+  await until(`document.body.innerText.includes('Sẵn sàng nhận việc')&&document.body.innerText.includes('Đơn mới')`)
+  await call('Browser.setPermission',{permission:{name:'geolocation'},setting:'denied',origin:'http://localhost:3002'})
+  const enabled=await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Bật sẵn sàng & GPS');if(b){b.click();return true}return false})()`)
+  if(enabled){await until(`document.body.innerText.includes('Chưa được cấp GPS')`);const response=await fetch('http://localhost:4000/api/staff/me/dispatch/presence',{headers:{Authorization:'Bearer '+staffToken}});const presence=await response.json();assert.equal(presence.ready,false);assert.equal(presence.latitude,null)}
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'))
+  console.log('PASS: staff tabs/realtime UI, denied GPS does not silently enable readiness or store a position; mobile layout fits.')
+  // Browser-only assignment fixture; no booking/assignment is inserted or cancelled on the server.
+  await evaluate(`(()=>{window.__qaOriginalFetch=window.fetch.bind(window);window.fetch=(input,init)=>String(input).includes('/api/staff/me/jobs')?Promise.resolve(new Response(JSON.stringify([{id:999999,bookingId:999999,employeeId:1,userId:1,status:'accepted',scheduledStart:'2026-12-01T02:00:00Z',scheduledEnd:'2026-12-01T04:00:00Z'}]),{status:200,headers:{'Content-Type':'application/json'}})):window.__qaOriginalFetch(input,init);window.dispatchEvent(new Event('cleanhome-jobs-changed'));return true})()`)
+  await evaluate(`[...document.querySelectorAll('[role=tab]')].find(b=>b.textContent.includes('Công việc đã nhận')).click()`)
+  await until(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Hủy nhận việc')`)
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Hủy nhận việc').click()`)
+  await until(`!!document.querySelector('[role=dialog]')&&document.body.innerText.includes('Bạn có chắc chắn muốn hủy nhận công việc này không?')`)
+  assert.equal(await evaluate(`document.querySelector('[role=dialog] select').options.length`),5)
+  await evaluate(`[...document.querySelectorAll('[role=dialog] button')].find(b=>b.textContent==='Quay lại').click();window.fetch=window.__qaOriginalFetch;delete window.__qaOriginalFetch;window.dispatchEvent(new Event('cleanhome-jobs-changed'))`)
+  console.log('PASS: employee withdrawal confirmation dialog/reason choices using browser-only fixture; closed without submitting.')
+  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false})
+  await session('admin',3003,'/phan-phoi-tu-dong');await until(`document.body.innerText.includes('Cấu hình tìm nhân viên')`)
+  await call('Page.navigate',{url:'http://localhost:3003/thanh-toan'});await until(`document.body.innerText.includes('Qu\u1ea3n l\u00fd thanh to\u00e1n')&&document.body.innerText.includes('Ch\u01b0a x\u00e1c nh\u1eadn thu')`)
+  await call('Page.navigate',{url:'http://localhost:3003/don-dich-vu'});await until(`document.body.innerText.includes('Yêu cầu nhân sự cần xử lý')&&document.body.innerText.includes('Thùng rác / Đơn đã xóa')`)
+  await until(`!!document.querySelector('input[aria-label="Ngưỡng hủy nhận việc"]')`)
+  await evaluate(`[...document.querySelectorAll('label')].find(label=>label.textContent.includes('Thùng rác / Đơn đã xóa')).querySelector('input').click()`)
+  await delay(800)
+  assert.equal(await evaluate(`[...document.querySelectorAll('label')].find(label=>label.textContent.includes('Thùng rác / Đơn đã xóa')).querySelector('input').checked`),true)
+  await evaluate(`[...document.querySelectorAll('label')].find(label=>label.textContent.includes('Thùng rác / Đơn đã xóa')).querySelector('input').click()`)
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Thông báo')).click()`)
+  await until(`!!document.querySelector('[aria-label="Thông báo đơn hàng"]')`)
+  console.log('PASS: live admin withdrawal policy, trash view and authenticated notification panel render without mutating orders.')
+  console.log('PASS: admin dispatch/payment screens and customer CASH/VNPAY choice render from live APIs. No data mutations from browser QA.')
+ }finally{for(const token of tokens)await fetch('http://localhost:4000/api/auth/logout',{method:'POST',headers:{Authorization:'Bearer '+token}}).catch(()=>{});await call('Browser.close').catch(()=>{});socket.close()}
+}
+main().catch(error=>{console.error(error.message);process.exitCode=1})

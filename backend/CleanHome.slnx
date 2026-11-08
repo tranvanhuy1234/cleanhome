@@ -1,0 +1,40 @@
+<Solution>
+  <Folder Name="/api-gateway/" />
+  <Folder Name="/api-gateway/src/">
+    <Project Path="api-gateway/src/CleanHome.Gateway.Api.csproj" />
+  </Folder>
+  <Folder Name="/auth-service/" />
+  <Folder Name="/auth-service/src/">
+    <Project Path="auth-service/src/CleanHome.Auth.Api.csproj" />
+  </Folder>
+  <Folder Name="/order-service/" />
+  <Folder Name="/order-service/src/">
+    <Project Path="order-service/src/CleanHome.Order.Api.csproj" />
+  </Folder>
+  <Folder Name="/payment-service/" />
+  <Folder Name="/payment-service/src/">
+    <Project Path="payment-service/src/CleanHome.Payment.Api.csproj" />
+  </Folder>
+  <Folder Name="/review-service/" />
+  <Folder Name="/review-service/src/">
+    <Project Path="review-service/src/CleanHome.Review.Api.csproj" />
+  </Folder>
+  <Folder Name="/service-service/" />
+  <Folder Name="/service-service/src/">
+    <Project Path="service-service/src/CleanHome.Catalog.Api.csproj" />
+  </Folder>
+  <Folder Name="/shared/">
+    <Project Path="shared/CleanHome.ServiceDefaults/CleanHome.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/staff-service/" />
+  <Folder Name="/staff-service/src/">
+    <Project Path="staff-service/src/CleanHome.Staff.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CleanHome.IntegrationTests/CleanHome.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/user-service/" />
+  <Folder Name="/user-service/src/">
+    <Project Path="user-service/src/CleanHome.User.Api.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,16 @@
+"use client"
+import {StaffCalendarJobs} from '../staff/staff-job-summary'
+import {useEffect,useRef,useState} from 'react'
+import {apiRequest,apiPages} from '@/lib/api-client'
+import {Heading,Panel,Field,Btn,Table,date} from '../../common'
+type Slot={id:number;startsAt:string;endsAt:string;status:string}
+type Employee={id:number;userId:number;branchId:number}
+export function BackendCalendar({admin}:{admin:boolean}){
+ const [employees,setEmployees]=useState<Employee[]>([]),[employee,setEmployee]=useState(''),[slots,setSlots]=useState<Slot[]>([]),[startsAt,setStart]=useState(''),[endsAt,setEnd]=useState(''),[status,setStatus]=useState('available'),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[tick,setTick]=useState(0)
+ const locked=useRef(false)
+ useEffect(()=>{if(!admin)return;apiPages<Employee>('staff/admin/employees').then(r=>setEmployees(r)).catch(e=>setError(e.message))},[admin])
+ useEffect(()=>{let live=true;setSlots([]);if(admin&&!employee)return;apiRequest<Slot[]>(admin?`staff/admin/employees/${employee}/availability`:'staff/me/availability').then(r=>{if(live)setSlots(r)}).catch(e=>{if(live)setError(e.message)});return()=>{live=false}},[admin,employee,tick])
+ async function save(id?:number){if(locked.current)return;locked.current=true;setBusy(true);setError('');setNotice('');try{await apiRequest(`staff/admin/employees/${employee}/availability${id?'/'+id:''}`,{method:id?'DELETE':'POST',...(id?{}:{body:JSON.stringify({startsAt:new Date(startsAt).toISOString(),endsAt:new Date(endsAt).toISOString(),status})})});setTick(v=>v+1);setNotice('Đã cập nhật lịch trên máy chủ.')}catch(e){setError(e instanceof Error?e.message:'Không cập nhật được lịch.')}finally{locked.current=false;setBusy(false)}}
+ const input='min-h-11 w-full rounded-lg border p-3'
+ return <div className="ch-container py-8">{!admin&&<StaffCalendarJobs/>}<Heading title="Lịch làm việc"/>{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}{admin&&<Field label="Nhân viên"><select className={input} value={employee} onChange={e=>setEmployee(e.target.value)}><option value="">Chọn nhân viên</option>{employees.map(e=><option key={e.id} value={e.id}>Nhân viên {e.id} · chi nhánh {e.branchId}</option>)}</select></Field>}<Panel><Table headers={['Bắt đầu','Kết thúc','Loại lịch','Thao tác']} rows={slots.map(s=>[date(s.startsAt),date(s.endsAt),s.status==='available'?'Có thể nhận việc':'Bận',admin?<Btn disabled={busy} onClick={()=>void save(s.id)}>Xóa khoảng lịch</Btn>:null])}/></Panel>{admin&&employee&&<Panel title="Thêm khoảng lịch"><form className="grid gap-4" onSubmit={e=>{e.preventDefault();void save()}}><Field label="Bắt đầu (giờ trên máy của bạn)"><input className={input} required type="datetime-local" value={startsAt} onChange={e=>setStart(e.target.value)}/></Field><Field label="Kết thúc"><input className={input} required type="datetime-local" value={endsAt} onChange={e=>setEnd(e.target.value)}/></Field><Field label="Loại lịch"><select className={input} value={status} onChange={e=>setStatus(e.target.value)}><option value="available">Có thể nhận việc</option><option value="unavailable">Bận</option></select></Field><Btn disabled={busy} type="submit">Lưu khoảng lịch</Btn></form></Panel>}</div>
+}

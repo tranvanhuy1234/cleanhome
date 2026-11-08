@@ -1,0 +1,20 @@
+using CleanHome.ServiceDefaults;
+using CleanHome.Payment.Api.Configuration;
+using CleanHome.Payment.Api.Interfaces;
+using CleanHome.Payment.Api.Repositories;
+using CleanHome.Payment.Api.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+VnPayOptions.LoadEnv(builder.Environment.ContentRootPath);
+builder.AddCleanHomeService(authentication:true);
+builder.Services.AddSingleton<VnPayOptions>();
+builder.Services.AddScoped<IPaymentRepository,PaymentRepository>();
+builder.Services.AddScoped<OrderPaymentClient>();
+builder.Services.AddScoped<VnPayGateway>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddHttpClient("payment-internal",client=>client.Timeout=TimeSpan.FromSeconds(5));
+builder.Services.AddHttpClient("vnpay",client=>client.Timeout=TimeSpan.FromSeconds(15));
+builder.Services.AddHostedService<PaymentWorker>();
+var app = builder.Build();
+app.MapCleanHomeService("payment-service",authentication:true);
+app.Run();
